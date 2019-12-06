@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Improved monday.com Interface</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.0/css/bulma.min.css">
+    <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+
+    <style>
+        body {
+            line-height: 1.9;
+            margin-bottom: 5rem;
+        }
+        .filters li {
+            display: inline-block;
+        }
+        .filters li a {
+            padding: 0.5rem 1rem;
+            font-weight: bold;
+        }
+        .filters li a.selected {
+            color: #002c73;
+            border-bottom: 3px solid #002c73;
+        }
+        .text-no-wrap {
+            white-space: nowrap;
+        }
+    </style>
+</head>
+
+<body>
+    <section id="app" class="container">
+        <header class="header section has-text-centered">
+            <button class="button is-white" @click="showSettings = ! showSettings">
+                <span class="icon is-small">
+                    <i class="fas fa-users-cog"></i>
+                </span>
+            </button>
+
+            <div style="margin: 1rem 0;" class="field has-addons" v-show="showSettings">
+                <div class="control is-expanded">
+                    <input id="mondayDomain" class="input" type="text" placeholder="https://your-domain-in.monday.com/" :value="settings.mondayDomain">
+                </div>
+                <div class="control">
+                    <button class="button is-info" @click="updateDomain()">
+                        Update
+                    </button>
+                </div>
+            </div>
+
+            <div style="margin: 1rem 0;" class="field has-addons" v-show="showSettings">
+                <div class="control is-expanded">
+                    <input id="mondayApiKey" class="input" type="text" placeholder="monday.com V2 API Key.." :value="settings.apiKey">
+                </div>
+                <div class="control">
+                    <button class="button is-info" @click="updateApiKey()">
+                        Update
+                    </button>
+                </div>
+            </div>
+
+            <div style="margin: 1rem 0;" v-show="showSettings">
+                <div class="is-centered buttons">
+                    <button v-for="user in users" class="button is-small" @click="setUser(user)" :class="{ 'is-info is-selected': user == settings.name }">{{ user }}</button>
+                </div>
+            </div>
+
+            <h1 v-show="tasks.length" class="title">Tasks</h1>
+
+            <div v-show="tasks.length" v-cloak>
+                <ul class="filters">
+                    <li><a href="#/all" :class="{ selected: visibility == 'all' }">All [{{ remaining + ignored + snoozed + completed }}]</a></li>
+                    <li><a href="#/remaining" :class="{ selected: visibility == 'remaining' }">Remaining [{{ remaining }}]</a></li>
+                    <li><a href="#/snoozed" :class="{ selected: visibility == 'snoozed' }">Snoozed [{{ snoozed }}]</a></li>
+                    <li><a href="#/ignored" :class="{ selected: visibility == 'ignored' }">Ignored [{{ ignored }}]</a></li>
+                    <li><a href="#/completed" :class="{ selected: visibility == 'completed' }">Completed [{{ completed }}]</a></li>
+                </ul>
+            </div>
+        </header>
+
+        <section class="main" v-show="tasks.length" v-cloak>
+            <table class="table is-striped is-hoverable is-fullwidth" v-show="tasks.length" v-cloak>
+                <thead>
+                    <tr>
+                        <th class="text-no-wrap has-text-centered">Task ID</th>
+                        <th class="text-no-wrap has-text-centered">Severity</th>
+                        <th class="text-no-wrap has-text-centered">Status</th>
+                        <th>Name</th>
+                        <th class="text-no-wrap" v-show="visibility !== 'completed'">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="task in filteredTasks" :key="task.item">
+                        <td class="text-no-wrap has-text-centered">
+                            <a v-if="task.url" target="_blank" :href="task.url">{{ task.item }}</a>
+                            <span v-else>{{ task.item }}</span>
+                        </td>
+                        <td class="text-no-wrap has-text-centered has-text-weight-bold" :style="task.severityColor">{{ task.severity }}</td>
+                        <td class="text-no-wrap has-text-centered has-text-weight-bold" :style="task.statusColor">{{ task.status }}</td>
+                        <td>{{ task.name }}</td>
+                        <td style="width: 290px;" class="text-no-wrap" v-show="visibility !== 'completed'">
+                            <div class="buttons has-addons are-small">
+                                <button v-show="task.snoozed < new Date().getTime() && ! task.ignored && ! task.completed" class="button is-light" disabled>Snooze for</button>
+                                <button v-show="task.snoozed < new Date().getTime() && ! task.ignored && ! task.completed" class="button is-light" @click="snooze(task, 3600000 * 2)">2h</button>
+                                <button v-show="task.snoozed < new Date().getTime() && ! task.ignored && ! task.completed" class="button is-light" @click="snooze(task, 3600000 * 24)">1d</button>
+                                <button v-show="task.snoozed < new Date().getTime() && ! task.ignored && ! task.completed" class="button is-light" @click="snooze(task, 3600000 * 24 * 7)">1w</button>
+                                <button v-show="task.snoozed >= new Date().getTime()" class="button is-danger is-light is-small" @click="unsnooze(task)">Unsnooze</button>
+                                <button v-show="! task.ignored && task.snoozed < new Date().getTime() && ! task.completed" @click="ignoreTask(task)" class="button is-danger is-light is-small">Ignore</button>
+                                <button v-show="task.ignored && task.snoozed < new Date().getTime()" @click="restoreTask(task)" class="button is-danger is-light is-small">Restore</button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+                </table>
+        </section>
+    </section>
+
+    <script>
+        let STORAGE_KEY = 'monday-v2-settings'
+        
+        let colorStatusMap = {
+            "Task Done": "#2ECC40",
+            "Not Started": "#DDDDDD",
+            "In Progress": "#FFDC00",
+            "On Hold": "#85144b",
+            "Merge Request": "#2ECC40"
+        };
+
+        let colorSeverityMap = {
+            "4 - Backlog": "#DDDDDD",
+            "3 - Medium": "#AAAAAA",
+            "2 - High": "#111111",
+            "1 - Critical": "#FF4136",
+        };
+
+        let storage = {
+            fetchSettings: function () {
+                let settings = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+
+                if (! settings.hasOwnProperty('ignoredTasks')) {
+                    settings.ignoredTasks = [];
+                }
+
+                if (! settings.hasOwnProperty('snoozedTasks')) {
+                    settings.snoozedTasks = {};
+                }
+
+                if (! settings.hasOwnProperty('apiKey')) {
+                    return settings;
+                }
+
+                if (! settings.hasOwnProperty('name')) {
+                    return settings;
+                }
+
+                if (! settings.hasOwnProperty('mondayDomain')) {
+                    return settings;
+                }
+
+                return settings;
+            },
+            save: function (data) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            }
+        }
+
+        function bySeverity(a, b) 
+        {
+            if (a.severity.charAt(0) < b.severity.charAt(0)) {
+                return -1;
+            }
+            
+            if (a.severity.charAt(0) > b.severity.charAt(0)) {
+                return 1;
+            }
+
+            return 0;
+        }
+
+        let filters = {
+            all: function (tasks) {
+                return tasks
+            },
+            remaining: function (tasks) {
+                return tasks.filter(function (task) {
+                    return ! task.completed && ! task.ignored && task.snoozed < new Date().getTime();
+                })
+            },
+            ignored: function (tasks) {
+                return tasks.filter(function (task) {
+                    return task.ignored && task.snoozed < new Date().getTime();
+                })
+            },
+            snoozed: function (tasks) {
+                return tasks.filter(function (task) {
+                    return task.snoozed >= new Date().getTime();
+                })
+            },
+            completed: function (tasks) {
+                return tasks.filter(function (task) {
+                    return task.completed && ! task.ignored && task.snoozed < new Date().getTime();
+                })
+            }
+        }
+
+        var app = new Vue({
+            data: {
+                settings: {},
+                tasks: [],
+                users: [],
+                visibility: 'all',
+                showSettings: false
+            },
+
+            created: function () {
+                this.settings = storage.fetchSettings();
+
+                if (! this.settings.hasOwnProperty('mondayDomain') || ! this.settings.hasOwnProperty('apiKey') || ! this.settings.hasOwnProperty('name')) {
+                    this.showSettings = true;
+                }
+
+                this.fetchTasks(this.settings);
+            },
+
+            mounted: function () {
+                window.setInterval(() => {
+                    this.fetchTasks(this.settings);
+                }, 10000);
+            },
+
+            computed: {
+                filteredTasks: function () {
+                    return filters[this.visibility](this.tasks).sort(bySeverity)
+                },
+                remaining: function () {
+                    return filters.remaining(this.tasks).length
+                },
+                ignored: function () {
+                    return filters.ignored(this.tasks).length
+                },
+                snoozed: function () {
+                    return filters.snoozed(this.tasks).length
+                },
+                completed: function () {
+                    return filters.completed(this.tasks).length
+                }
+            },
+
+            methods: {
+                ignoreTask: function (task) {
+                    this.tasks[this.tasks.indexOf(task)].ignored = true;
+                    this.settings.ignoredTasks.push(task.item);
+                    storage.save(this.settings);
+                },
+                snooze: function (task, time) {
+                    let snoozeUntil = new Date().getTime() + time;
+                    this.tasks[this.tasks.indexOf(task)].snoozed = snoozeUntil;
+                    this.settings.snoozedTasks[task.item] = snoozeUntil;
+                    storage.save(this.settings);
+                },
+                unsnooze: function (task) {
+                    this.tasks[this.tasks.indexOf(task)].snoozed = 0;
+                    delete this.settings.snoozedTasks[task.item];
+                    storage.save(this.settings);
+                },
+                setUser: function (user) {
+                    this.settings.name = user;
+                    storage.save(this.settings);
+                    this.tasks = [];
+                    this.fetchTasks(this.settings);
+                    this.showSettings = false;
+                },
+                updateApiKey: function () {
+                    this.settings.apiKey = document.getElementById("mondayApiKey").value;
+                    storage.save(this.settings);
+                    this.tasks = [];
+                    this.fetchTasks(this.settings);
+                },
+                updateDomain: function () {
+                    this.settings.mondayDomain = document.getElementById("mondayDomain").value;
+                    storage.save(this.settings);
+                    this.tasks = [];
+                    this.fetchTasks(this.settings);
+                },
+                restoreTask: function (task) {
+                    this.tasks[this.tasks.indexOf(task)].ignored = false;
+                    this.settings.ignoredTasks.splice(this.settings.ignoredTasks.indexOf(task.item), 1);
+                    storage.save(this.settings);
+                },
+                fetchTasks: function (settings) {
+                    if (! settings.hasOwnProperty('apiKey')) {
+                        return [];
+                    }
+
+                    fetch('https://api.monday.com/v2/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Authorization': settings.apiKey
+                        },
+                        body: JSON.stringify({query: "{users {name}, boards () {id,items () {id,name,column_values {text,title}}}}"})
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        let users = [];
+
+                        data.data.users.forEach(function (user) {
+                            users.push(user.name);
+                        });
+
+                        this.users = users;
+
+                        if (! settings.hasOwnProperty('name')) {
+                            return [];
+                        }
+
+                        let myTasks = [];
+
+                        data.data.boards.forEach(function (board) {
+                            board.items.forEach(function (item) {
+                                let assignedToMe = false;
+                                let taskSeverity = "0 - Unknown";
+                                let taskStatus = "Unknown";
+                                
+                                item.column_values.forEach(function (column_value) 
+                                {
+                                    if (column_value.title == "Development") {
+                                        taskStatus = column_value.text;
+                                    }
+
+                                    if (column_value.title == "Severity") {
+                                        taskSeverity = column_value.text;
+                                    }
+
+                                    if (column_value.text == settings.name) {
+                                        assignedToMe = true;
+                                    }
+                                });
+
+                                if (assignedToMe === true) {
+                                    myTasks.push({
+                                        board: board.id,
+                                        item: item.id,
+                                        name: item.name,
+                                        status: taskStatus,
+                                        severity: taskSeverity
+                                    });
+                                }
+                            });
+                        });
+
+                        let tasks = [];
+
+                        myTasks.forEach(function (task) 
+                        {
+                            task.severityColor = "#FF4136";
+                            if (colorSeverityMap.hasOwnProperty(task.severity)) {
+                                task.severityColor = colorSeverityMap[task.severity];
+                            }
+
+                            task.statusColor = "#FF4136";
+                            if (colorStatusMap.hasOwnProperty(task.status)) {
+                                task.statusColor = colorStatusMap[task.status];
+                            }
+
+                            task.severityColor = "color: " + task.severityColor;
+                            task.statusColor = "color: " + task.statusColor;
+
+                            task.completed = false;
+                            task.ignored = false;
+                            task.snoozed = 0;
+
+                            if (settings.ignoredTasks.includes(task.item)) {
+                                task.ignored = true;
+                            }
+
+                            if (settings.snoozedTasks.hasOwnProperty(task.item)) {
+                                task.snoozed = settings.snoozedTasks[task.item];
+                            }
+
+                            if (task.status == "Task Done") {
+                                task.completed = true;
+                            }
+
+                            if (settings.mondayDomain) {
+                                task.url = settings.mondayDomain + "/boards/" + task.board + "/pulses/" + task.item;
+                            } else {
+                                task.url = false;
+                            }
+
+                            tasks.push(task);
+                        });
+
+                        this.tasks = tasks;
+                    });
+
+                    return [];
+                }
+            }
+        });
+
+        // handle routing
+        function onHashChange () 
+        {
+            var visibility = window.location.hash.replace(/#\/?/, '')
+
+            if (filters[visibility]) {
+                app.visibility = visibility
+            } else {
+                window.location.hash = ''
+                app.visibility = 'all'
+            }
+        }
+
+        window.addEventListener('hashchange', onHashChange)
+        onHashChange()
+
+        // mount
+        app.$mount('#app')
+
+    </script>
+</body>
+</html>
